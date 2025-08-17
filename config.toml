@@ -1,0 +1,30 @@
+# SearxGO Configuration File
+# This file controls which search engines are enabled and their settings
+
+[server]
+port = 9000
+timeout = "6s"
+static_dir = "static"
+default_size = 30
+
+[engines]
+# Enable or disable search engines by setting enabled = true/false
+# When disabled, the engine will not be loaded and won't return results
+
+[engines.google]
+enabled = true
+priority = 1
+
+
+[engines.duckduckgo]
+enabled = true
+priority = 2
+
+
+[engines.bing]
+enabled = true
+priority = 3
+
+[engines.reddit]
+enabled = true
+priority = 4

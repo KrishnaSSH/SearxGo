@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>searxgo</title>
+  <link rel="icon" href="/static/assets/icon.png" />
+  <link rel="apple-touch-icon" href="/static/assets/icon.png" />
+  <link rel="stylesheet" href="/static/css/base.css" />
+</head>
+<body class="home">
+  <main class="container">
+    <div class="brand">
+      <div class="logo-circle">
+        <img src="/static/assets/icon.png" alt="SeaxGO" />
+      </div>
+      <div class="brand-title">SearxGO</div>
+    </div>
+    <form id="search_form" class="search" role="search" action="/results" method="get">
+      <div class="search-wrap">
+        <input id="q" name="q" type="text" placeholder="Search the web" autocomplete="off" autocapitalize="none" spellcheck="false" />
+        <button id="submit" type="submit" aria-label="Search"><span>Search</span></button>
+      </div>
+    </form>
+    
+  </main>
+</body>
+</html>

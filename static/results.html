@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Results - SearxGO</title>
+  <link rel="icon" href="/static/assets/icon.png" />
+  <link rel="apple-touch-icon" href="/static/assets/icon.png" />
+  <link rel="stylesheet" href="/static/css/base.css" />
+  <link rel="stylesheet" href="/static/css/utilities.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="/" class="brand-small" aria-label="Home">
+        <div class="logo-circle"><img src="/static/assets/icon.png" alt="SearxGO" /></div>
+      </a>
+      <form class="search search--header" role="search" action="/results" method="get">
+        <div class="search-wrap">
+          <input id="q" name="q" type="text" placeholder="Search the web" autocomplete="off" autocapitalize="none" spellcheck="false" />
+          <button id="submit" type="submit" aria-label="Search"><span>Search</span></button>
+        </div>
+      </form>
+    </div>
+  </header>
+
+  <main class="results-shell">
+    <section class="results-wrap" aria-label="Search results">
+      <div id="timing-bar" class="timing-bar" aria-live="polite" aria-label="Search timings"></div>
+      <div id="cards" class="cards" aria-live="polite"></div>
+      <ul id="results" class="results-list" aria-live="polite"></ul>
+      <nav class="pager" aria-label="Pagination">
+        <a id="prev" class="pager-btn" href="#" aria-label="Previous page">Previous</a>
+        <a id="next" class="pager-btn" href="#" aria-label="Next page">Next</a>
+      </nav>
+    </section>
+    <aside id="knowledge" class="knowledge" aria-label="Knowledge panel"></aside>
+  </main>
+
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

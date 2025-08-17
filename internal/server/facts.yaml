@@ -1,0 +1,137 @@
+defaults:
+  max_default: 8
+  properties:
+    - id: P571
+      key: Founded
+      type: time
+    - id: P577
+      key: Initial release
+      type: time
+    - id: P178
+      key: Developer
+      type: entityid
+    - id: P112
+      key: Founded by
+      type: entityid
+    - id: P749
+      key: Parent org
+      type: entityid
+    - id: P159
+      key: Headquarters
+      type: entityid
+    - id: P17
+      key: Country
+      type: entityid
+    - id: P495
+      key: Country of origin
+      type: entityid
+    - id: P169
+      key: CEO
+      type: entityid
+    - id: P452
+      key: Industry
+      type: entityid
+    - id: P127
+      key: Owner
+      type: entityid
+    - id: P1128
+      key: Employees
+      type: quantity
+    - id: P3744
+      key: Users
+      type: quantity
+    - id: P2139
+      key: Revenue
+      type: quantity
+    - id: P2227
+      key: Market cap
+      type: quantity
+    - id: P576
+      key: Defunct
+      type: time
+    - id: P740
+      key: Founded in
+      type: entityid
+    - id: P355
+      key: Subsidiaries
+      type: entityid
+      multiple: true
+      limit: 5
+    - id: P123
+      key: Publisher
+      type: entityid
+    - id: P275
+      key: License
+      type: entityid
+    - id: P407
+      key: Languages
+      type: entityid
+      multiple: true
+      limit: 5
+    - id: P400
+      key: Platform
+      type: entityid
+      multiple: true
+      limit: 3
+    - id: P277
+      key: Programming language
+      type: entityid
+      multiple: true
+      limit: 5
+    - id: P136
+      key: Genre
+      type: entityid
+      multiple: true
+      limit: 3
+    - id: P1056
+      key: Products
+      type: entityid
+      multiple: true
+      limit: 3
+    - id: P306
+      key: Operating system
+      type: entityid
+      multiple: true
+      limit: 3
+    - id: P348
+      key: Latest version
+      type: string
+    - id: P414
+      key: Exchange
+      type: entityid
+    - id: P249
+      key: Ticker
+      type: string
+    - id: P856
+      key: Website
+      type: url
+  priority:
+    - Founded
+    - Initial release
+    - Founded by
+    - Developer
+    - Parent org
+    - Headquarters
+    - Country
+    - Country of origin
+    - CEO
+    - Industry
+    - Owner
+    - Employees
+    - Users
+    - Revenue
+    - Market cap
+    - Defunct
+    - Founded in
+    - Subsidiaries
+    - Publisher
+    - License
+    - Languages
+    - Platform
+    - Programming language
+    - Genre
+    - Products
+    - Operating system
+    - Latest version
+    - Exchange
+    - Ticker
