@@ -8,6 +8,7 @@ import (
 
     "searxgo/internal/aggregate"
     en "searxgo/internal/engine"
+    "searxgo/internal/suggest"
 )
 
 // Server bundles dependencies for HTTP handlers.
@@ -21,11 +22,49 @@ type Server struct {
     knowledgeService *KnowledgeService
     responseHelper   *ResponseHelper
     requestParser    *RequestParser
+    suggestMgr       *suggest.Manager
+}
+
+// handleEngines returns the list of available engines by name.
+func (s *Server) handleEngines(w http.ResponseWriter, r *http.Request) {
+    type resp struct{ Engines []string `json:"engines"` }
+    names := make([]string, 0, len(s.Engines))
+    for _, e := range s.Engines {
+        if e == nil { continue }
+        n := e.Name()
+        if n != "" { names = append(names, n) }
+    }
+    _ = s.responseHelper.WriteNoCache(w, resp{Engines: names})
+}
+
+// handleSuggest proxies autocomplete suggestions via Google Suggest API (client=firefox)
+// Response: { "suggestions": ["...", ...] }
+func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
+    q := strings.TrimSpace(r.URL.Query().Get("q"))
+    if q == "" {
+        _ = s.responseHelper.WriteNoCache(w, struct{ Suggestions []string `json:"suggestions"` }{Suggestions: nil})
+        return
+    }
+
+    // short, snappy timeout
+    timeout := 800 * time.Millisecond
+    if s.Timeout > 0 && s.Timeout < timeout {
+        timeout = s.Timeout
+    }
+    ctx, cancel := context.WithTimeout(r.Context(), timeout)
+    defer cancel()
+
+    prov := strings.TrimSpace(r.URL.Query().Get("provider"))
+    items, _ := s.suggestMgr.Suggest(ctx, prov, q)
+    _ = s.responseHelper.WriteNoCache(w, struct{ Suggestions []string `json:"suggestions"` }{Suggestions: items})
 }
 
 // NewServer creates a new server with default configuration
 func NewServer(engines []en.SearchEngine) *Server {
     timeout := 5 * time.Second
+    mgr := suggest.NewManager("google", map[string]suggest.Provider{
+        "google": suggest.NewGoogleProvider(),
+    })
     return &Server{
         Engines:          engines,
         Timeout:          timeout,
@@ -34,6 +73,7 @@ func NewServer(engines []en.SearchEngine) *Server {
         knowledgeService: NewKnowledgeService(timeout),
         responseHelper:   NewResponseHelper(),
         requestParser:    NewRequestParser(),
+        suggestMgr:       mgr,
     }
 }
 
@@ -47,6 +87,8 @@ func (s *Server) Handler() http.Handler {
     // API routes
     mux.HandleFunc("/search", s.handleSearch)
     mux.HandleFunc("/knowledge", s.handleKnowledge)
+    mux.HandleFunc("/suggest", s.handleSuggest)
+    mux.HandleFunc("/engines", s.handleEngines)
 
     return mux
 }
@@ -56,13 +98,33 @@ func (s *Server) setupStaticRoutes(mux *http.ServeMux) {
     if s.StaticDir == "" {
         s.StaticDir = "static"
     }
+    // Set no-cache headers to avoid stale JS/CSS/HTML during development/runtime
+    setNoCache := func(w http.ResponseWriter) {
+        w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        w.Header().Set("Pragma", "no-cache")
+        w.Header().Set("Expires", "0")
+    }
+
     fs := http.FileServer(http.Dir(s.StaticDir))
-    mux.Handle("/static/", http.StripPrefix("/static/", fs))
+    noCache := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        setNoCache(w)
+        fs.ServeHTTP(w, r)
+    })
+    mux.Handle("/static/", http.StripPrefix("/static/", noCache))
+
     // Pretty route for results page (avoid exposing /static/results.html in URL)
     mux.HandleFunc("/results", func(w http.ResponseWriter, r *http.Request) {
+        setNoCache(w)
         http.ServeFile(w, r, s.StaticDir+"/results.html")
     })
+    // Preferences page
+    mux.HandleFunc("/preferences", func(w http.ResponseWriter, r *http.Request) {
+        setNoCache(w)
+        http.ServeFile(w, r, s.StaticDir+"/preferences.html")
+    })
+    // Home page
     mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        setNoCache(w)
         http.ServeFile(w, r, s.StaticDir+"/index.html")
     })
 }
@@ -94,8 +156,26 @@ func (s *Server) executeSearch(ctx context.Context, params SearchParams) ([]en.R
     // Engines need a deterministic page size to fetch offsets.
     // DuckDuckGo HTML effectively paginates in ~30-size chunks; use 30 for consistency.
     engineSize := 30
+    // Filter engines per request if user provided a list (local browser preference)
+    engines := s.Engines
+    if len(params.Engines) > 0 {
+        nameToEngine := make(map[string]en.SearchEngine, len(s.Engines))
+        for _, e := range s.Engines {
+            if e == nil { continue }
+            nameToEngine[strings.ToLower(e.Name())] = e
+        }
+        filtered := make([]en.SearchEngine, 0, len(params.Engines))
+        for _, name := range params.Engines {
+            if e := nameToEngine[strings.ToLower(strings.TrimSpace(name))]; e != nil {
+                filtered = append(filtered, e)
+            }
+        }
+        if len(filtered) > 0 {
+            engines = filtered
+        }
+    }
     totalStart := time.Now()
-    results, timings := aggregate.Run(ctx, s.Engines, params.Query, s.Timeout, params.Page, engineSize)
+    results, timings := aggregate.Run(ctx, engines, params.Query, s.Timeout, params.Page, engineSize)
     took := time.Since(totalStart)
     
     // Slice to requested size for the client (stable subset of the engine page)
@@ -133,8 +213,9 @@ func (s *Server) handleKnowledge(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Setup context with a slightly higher timeout for better reliability
-    timeout := 3500 * time.Millisecond
+    // Setup context with a higher timeout so Wikidata facts/logo have time to arrive
+    // Slightly increased to reduce chances of partial cards without logo/facts
+    timeout := 8 * time.Second
     if s.Timeout > 0 && s.Timeout < timeout {
         timeout = s.Timeout
     }

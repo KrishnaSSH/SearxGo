@@ -11,20 +11,15 @@ default_size = 30
 # Enable or disable search engines by setting enabled = true/false
 # When disabled, the engine will not be loaded and won't return results
 
-[engines.google]
+[engines.duckduckgo]
 enabled = true
 priority = 1
 
 
-[engines.duckduckgo]
+[engines.bing]
 enabled = true
 priority = 2
 
-
-[engines.bing]
-enabled = true
-priority = 3
-
 [engines.reddit]
 enabled = true
-priority = 4
+priority = 3

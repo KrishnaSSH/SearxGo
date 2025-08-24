@@ -110,15 +110,44 @@ func (b *bing) Search(ctx context.Context, q string, page int, size int) ([]en.R
             }
         }
 
-        // snippet: remove span.algoSlug_icon
-        p := s.Find("p").First().Clone()
+        // snippet: prefer Bing caption paragraph, remove decorations
+        p := s.Find("div.b_caption > p").First().Clone()
+        if p.Length() == 0 {
+            p = s.Find("p").First().Clone()
+        }
         p.Find("span.algoSlug_icon").Each(func(i int, sp *goquery.Selection) {
             sp.Remove()
         })
         snippet := strings.TrimSpace(p.Text())
+        // Guard against JSON-like blobs leaking into snippet
+        if len(snippet) > 40 {
+            // Heuristic: lots of braces/quotes/colons suggests JSON
+            jsonish := 0
+            for _, ch := range snippet {
+                switch ch {
+                case '{', '}', '[', ']', '"', ':', ',':
+                    jsonish++
+                }
+            }
+            if float64(jsonish)/float64(len(snippet)) > 0.12 || strings.HasPrefix(strings.TrimSpace(snippet), "{") {
+                snippet = ""
+            }
+        }
         if snippet == "" {
             // fallback to any immediate p under b_algo
             snippet = strings.TrimSpace(s.Find("p").First().Text())
+            if len(snippet) > 40 {
+                jsonish := 0
+                for _, ch := range snippet {
+                    switch ch {
+                    case '{', '}', '[', ']', '"', ':', ',':
+                        jsonish++
+                    }
+                }
+                if float64(jsonish)/float64(len(snippet)) > 0.12 || strings.HasPrefix(strings.TrimSpace(snippet), "{") {
+                    snippet = ""
+                }
+            }
         }
         // favicon from host
         fav := ""

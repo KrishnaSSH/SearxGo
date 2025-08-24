@@ -20,6 +20,7 @@ type SearchParams struct {
 	Page         int
 	Size         int
 	WantTimings  bool
+	Engines      []string
 }
 
 // ParseSearchParams parses search request parameters from URL query
@@ -51,6 +52,21 @@ func (rp *RequestParser) ParseSearchParams(r *http.Request, defaultSize int) Sea
 	// Ensure non-negative size
 	if params.Size < 0 {
 		params.Size = 0
+	}
+	
+	// Parse engines list (comma-separated); store as provided order
+	if v := strings.TrimSpace(r.URL.Query().Get("engines")); v != "" {
+		parts := strings.Split(v, ",")
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				out = append(out, p)
+			}
+		}
+		if len(out) > 0 {
+			params.Engines = out
+		}
 	}
 	
 	return params

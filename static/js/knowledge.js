@@ -12,6 +12,22 @@ export function renderKnowledge(container, card) {
 
   const url = card.url || card.URL || '';
   const thumb = card.thumbnail || card.Thumbnail || '';
+  // Build a responsive srcset for Commons logos when possible (…FilePath/…?width=NNN)
+  const makeSrcSet = (u) => {
+    if (!u) return '';
+    try {
+      const url = new URL(u);
+      if (!url.searchParams.has('width')) return '';
+      const widths = [160, 240, 320];
+      const items = widths.map(w => {
+        const nu = new URL(u);
+        nu.searchParams.set('width', String(w));
+        return `${nu.toString()} ${w}w`;
+      });
+      return items.join(', ');
+    } catch (_) { return ''; }
+  };
+  const srcset = makeSrcSet(thumb);
   const facts = card.facts || card.Facts || [];
   const website = card.website || card.Website || '';
   const wikiLogo = 'https://en.wikipedia.org/static/favicon/wikipedia.ico';
@@ -61,7 +77,11 @@ export function renderKnowledge(container, card) {
           ${metaLinks}
         </div>
       </div>
-      ${thumb ? (thumbLink ? `<a class="kthumb-link" href="${thumbLink}" target="_blank" rel="noopener"><img class="kthumb" src="${thumb}" alt="${escapeHtml(title)}" /></a>` : `<img class="kthumb" src="${thumb}" alt="${escapeHtml(title)}" />`) : ''}
+      ${thumb ? (
+        thumbLink
+          ? `<a class="kthumb-link" href="${thumbLink}" target="_blank" rel="noopener"><img class="kthumb" src="${thumb}" ${srcset ? `srcset="${srcset}" sizes="(max-width: 360px) 160px, (max-width: 520px) 240px, 320px"` : ''} alt="${escapeHtml(title)}" loading="eager" fetchpriority="high" decoding="async" /></a>`
+          : `<img class="kthumb" src="${thumb}" ${srcset ? `srcset="${srcset}" sizes="(max-width: 360px) 160px, (max-width: 520px) 240px, 320px"` : ''} alt="${escapeHtml(title)}" loading="eager" fetchpriority="high" decoding="async" />`
+      ) : ''}
       ${extract ? `<p class="kextract">${escapeHtml(extract)}</p>` : ''}
       ${factsHTML}
     </article>`;

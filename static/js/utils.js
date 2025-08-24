@@ -20,7 +20,7 @@ export function formatMs(ms) {
 
 export function prettyEngineName(name) {
   if (!name) return '';
-  const map = { duckduckgo: 'DuckDuckGo', reddit: 'Reddit', bing: 'Bing', google: 'Google' };
+  const map = { duckduckgo: 'DuckDuckGo', reddit: 'Reddit', bing: 'Bing' };
   return map[String(name).toLowerCase()] || name;
 }
 
@@ -52,7 +52,6 @@ export function deriveSiteName(host) {
     'medium': 'Medium',
     'nytimes': 'NYTimes',
     'cloudflare': 'Cloudflare',
-    'google': 'Google',
     'bing': 'Bing',
     'duckduckgo': 'DuckDuckGo'
   };

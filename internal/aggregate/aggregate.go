@@ -178,7 +178,6 @@ func Run(parent context.Context, engines []en.SearchEngine, query string, timeou
 func defaultEngineWeights() map[string]float64 {
 	return map[string]float64{
 		// Core web engines
-		"google":     1.0,
 		"bing":       1.0,
 		"duckduckgo": 1.3,
 		"mojeek":     1.2,

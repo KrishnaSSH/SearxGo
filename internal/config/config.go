@@ -85,8 +85,6 @@ func (c *Config) LoadEnabledEngines() []en.SearchEngine {
 
         var engine en.SearchEngine
         switch name {
-        case "google":
-            engine = engines.NewGoogle()
         case "bing":
             engine = engines.NewBing()
         case "duckduckgo":

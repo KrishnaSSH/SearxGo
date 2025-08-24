@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SearxGO Preferences</title>
+  <link rel="icon" href="/static/assets/icon.png" />
+  <link rel="apple-touch-icon" href="/static/assets/icon.png" />
+  <link rel="stylesheet" href="/static/css/base.css?v=2" />
+  <meta name="robots" content="noindex" />
+  
+  <!-- Page specific minimal styles can live in base.css; structure mirrors home -->
+  
+  </head>
+<body class="prefs">
+  <main class="container">
+    <div class="brand">
+      <div class="logo-circle">
+        <img src="/static/assets/icon.png" alt="SearxGO" />
+      </div>
+      <div class="brand-title">SearxGO</div>
+    </div>
+
+    <section class="card pref-card">
+      <div class="card-inner">
+        <div class="btn-row">
+          <a href="/" class="btn" aria-label="Back to Home">← Home</a>
+        </div>
+        <h1 class="pref-title">SearxGO Preferences</h1>
+        <h2 class="pref-subtitle">Enabled search engines</h2>
+        <p class="pref-desc">Saved locally in this browser.</p>
+
+        <ul id="engines-list" class="settings-list" role="group" aria-label="Search engines"></ul>
+
+        <div class="save-row">
+          <span id="save-status" class="save-status" aria-live="polite"></span>
+          <button id="save-prefs" class="btn" type="button">Save</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/static/js/preferences.js?v=2"></script>
+</body>
+</html>

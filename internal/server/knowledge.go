@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"searxgo/internal/httpx"
@@ -94,16 +95,64 @@ type WikipediaSummaryResult struct {
 type KnowledgeService struct {
 	timeout time.Duration
 	factsCfg FactsConfig
+	cacheMu sync.RWMutex
+	cardCache map[string]cacheEntry
+	labelMu sync.RWMutex
+	labelCache map[string]labelEntry
+}
+
+type cacheEntry struct {
+	card *KnowledgeCard
+	expires time.Time
+}
+
+type labelEntry struct {
+	label string
+	expires time.Time
 }
 
 // NewKnowledgeService creates a new knowledge service
 func NewKnowledgeService(timeout time.Duration) *KnowledgeService {
 	if timeout <= 0 {
-		timeout = 2500 * time.Millisecond
+		timeout = 5 * time.Second
 	}
-	ks := &KnowledgeService{timeout: timeout}
+	ks := &KnowledgeService{timeout: timeout, cardCache: map[string]cacheEntry{}, labelCache: map[string]labelEntry{}}
 	ks.loadFactsConfig()
 	return ks
+}
+
+func (ks *KnowledgeService) getCardFromCache(key string) *KnowledgeCard {
+	ks.cacheMu.RLock()
+	ce, ok := ks.cardCache[strings.ToLower(key)]
+	ks.cacheMu.RUnlock()
+	if !ok || time.Now().After(ce.expires) || ce.card == nil {
+		return nil
+	}
+	return ce.card
+}
+
+func (ks *KnowledgeService) putCardToCache(key string, card *KnowledgeCard, ttl time.Duration) {
+	if card == nil { return }
+	ks.cacheMu.Lock()
+	ks.cardCache[strings.ToLower(key)] = cacheEntry{card: card, expires: time.Now().Add(ttl)}
+	ks.cacheMu.Unlock()
+}
+
+func (ks *KnowledgeService) getLabelFromCache(id string) (string, bool) {
+	ks.labelMu.RLock()
+	le, ok := ks.labelCache[id]
+	ks.labelMu.RUnlock()
+	if !ok || time.Now().After(le.expires) || le.label == "" {
+		return "", false
+	}
+	return le.label, true
+}
+
+func (ks *KnowledgeService) putLabelToCache(id, label string, ttl time.Duration) {
+	if id == "" || label == "" { return }
+	ks.labelMu.Lock()
+	ks.labelCache[id] = labelEntry{label: label, expires: time.Now().Add(ttl)}
+	ks.labelMu.Unlock()
 }
 
 // ------------------- Helpers -------------------
@@ -113,18 +162,23 @@ func (ks *KnowledgeService) httpGetJSON(ctx context.Context, url string, target 
 	// reasonable window to improve reliability while keeping UI responsive.
 	per := ks.timeout
 	if per <= 0 {
-		per = 2500 * time.Millisecond
+		per = 5 * time.Second
 	}
 	if per < 2500*time.Millisecond {
 		per = 2500 * time.Millisecond
-	} else if per > 3500*time.Millisecond {
-		per = 3500 * time.Millisecond
+	} else if per > 6*time.Second {
+		per = 6 * time.Second
 	}
 	sctx, cancel := context.WithTimeout(ctx, per)
 	defer cancel()
 	body, status, err := httpx.Get(sctx, url)
 	if err != nil || status < 200 || status >= 300 {
-		return err
+		// single quick retry for transient network or upstream hiccups
+		body2, status2, err2 := httpx.Get(sctx, url)
+		if err2 != nil || status2 < 200 || status2 >= 300 {
+			return err2
+		}
+		return json.NewDecoder(bytes.NewReader(body2)).Decode(target)
 	}
 	return json.NewDecoder(bytes.NewReader(body)).Decode(target)
 }
@@ -139,11 +193,41 @@ func getFirstString(arr any) string {
 }
 
 func trimDate(val string) string {
-	val = strings.TrimPrefix(val, "+")
-	if i := strings.IndexByte(val, 'T'); i > 0 {
-		val = val[:i]
-	}
-	return val
+    // Wikidata time examples:
+    //  "+1954-01-01T00:00:00Z" -> 1954-01-01
+    //  "-0500-00-00T00:00:00Z" -> 500 BCE
+    //  "+2001-00-00T00:00:00Z" -> 2001
+    //  "+2001-05-00T00:00:00Z" -> 2001-05
+    v := val
+    if i := strings.IndexByte(v, 'T'); i > 0 {
+        v = v[:i]
+    }
+    // now like "+1954-01-01" or "-0500-00-00"
+    neg := strings.HasPrefix(v, "-")
+    v = strings.TrimPrefix(v, "+")
+    v = strings.TrimPrefix(v, "-")
+    parts := strings.SplitN(v, "-", 3)
+    if len(parts) < 1 {
+        return v
+    }
+    year := parts[0]
+    month := ""
+    day := ""
+    if len(parts) > 1 { month = parts[1] }
+    if len(parts) > 2 { day = parts[2] }
+    // if month is 00, return just year (with BCE if neg)
+    if month == "00" || month == "" {
+        if neg { return year + " BCE" }
+        return year
+    }
+    // if day is 00, return year-month
+    if day == "00" || day == "" {
+        if neg { return year + " BCE" } // BCE precision often year only
+        return year + "-" + month
+    }
+    // full date
+    if neg { return year + " BCE" } // For negative with full precision, keep year BCE
+    return year + "-" + month + "-" + day
 }
 
 func isQID(s string) bool {
@@ -216,10 +300,16 @@ func (ks *KnowledgeService) resolveEntityLabels(ctx context.Context, ids []strin
 			continue
 		}
 		seen[id] = struct{}{}
+		// serve from cache if present
+		if lbl, ok := ks.getLabelFromCache(id); ok {
+			labels[id] = lbl
+			continue
+		}
 		uniq = append(uniq, id)
 	}
 	// chunk requests to keep URLs reasonable
 	const chunkSize = 40
+	missing := map[string]struct{}{}
 	for i := 0; i < len(uniq); i += chunkSize {
 		end := i + chunkSize
 		if end > len(uniq) {
@@ -238,6 +328,45 @@ func (ks *KnowledgeService) resolveEntityLabels(ctx context.Context, ids []strin
 		for id, ent := range resp.Entities {
 			if l, ok := ent.Labels["en"]; ok && l.Value != "" {
 				labels[id] = l.Value
+				ks.putLabelToCache(id, l.Value, 24*time.Hour)
+			}
+		}
+		// Track unresolved IDs for a second attempt via sitelinks
+		for _, id := range uniq[i:end] {
+			if _, ok := labels[id]; !ok {
+				missing[id] = struct{}{}
+			}
+		}
+	}
+	// Fallback: fetch enwiki sitelinks as labels for unresolved IDs
+	if len(missing) > 0 {
+		ids2 := make([]string, 0, len(missing))
+		for id := range missing {
+			ids2 = append(ids2, id)
+		}
+		for i := 0; i < len(ids2); i += chunkSize {
+			end := i + chunkSize
+			if end > len(ids2) {
+				end = len(ids2)
+			}
+			idChunk := strings.Join(ids2[i:end], "|")
+			api := "https://www.wikidata.org/w/api.php?action=wbgetentities&props=sitelinks|labels&sitefilter=enwiki&languages=en&format=json&ids=" + url.QueryEscape(idChunk)
+			var resp struct {
+				Entities map[string]struct {
+					Labels map[string]struct{ Value string `json:"value"` } `json:"labels"`
+					Sitelinks map[string]struct{ Title string `json:"title"` } `json:"sitelinks"`
+				} `json:"entities"`
+			}
+			_ = ks.httpGetJSON(ctx, api, &resp)
+			for id, ent := range resp.Entities {
+				if _, ok := labels[id]; ok { continue }
+				if sl, ok := ent.Sitelinks["enwiki"]; ok && sl.Title != "" {
+					labels[id] = sl.Title
+					ks.putLabelToCache(id, sl.Title, 24*time.Hour)
+				} else if l, ok := ent.Labels["en"]; ok && l.Value != "" {
+					labels[id] = l.Value
+					ks.putLabelToCache(id, l.Value, 24*time.Hour)
+				}
 			}
 		}
 	}
@@ -358,9 +487,10 @@ func (ks *KnowledgeService) FetchWikidataFacts(ctx context.Context, title string
 	// Collect Q-IDs to resolve into human-readable labels
 	idSet := map[string]struct{}{}
 	for _, f := range facts {
-		// Split on comma+space as we join multiples that way
-		parts := strings.Split(f.Value, ", ")
-		for _, p := range parts {
+		// Split on comma and trim to be robust to inconsistent spacing
+		rawParts := strings.Split(f.Value, ",")
+		for _, rp := range rawParts {
+			p := strings.TrimSpace(rp)
 			if isQID(p) {
 				idSet[p] = struct{}{}
 			}
@@ -373,18 +503,26 @@ func (ks *KnowledgeService) FetchWikidataFacts(ctx context.Context, title string
 	labelMap := ks.resolveEntityLabels(ctx, ids)
 	// Replace any Q-IDs in fact values with labels
 	for i := range facts {
-		parts := strings.Split(facts[i].Value, ", ")
+		rawParts := strings.Split(facts[i].Value, ",")
+		out := make([]string, 0, len(rawParts))
 		changed := false
-		for j, p := range parts {
+		for _, rp := range rawParts {
+			p := strings.TrimSpace(rp)
 			if lbl, ok := labelMap[p]; ok {
-				parts[j] = lbl
+				out = append(out, lbl)
 				changed = true
-			} else if facts[i].Key == "Employees" { // format quantities nicely
-				parts[j] = formatNumber(p)
+			} else if isQID(p) {
+				// leave as-is if unresolved, but mark changed false
+				out = append(out, p)
+			} else if facts[i].Key == "Employees" {
+				out = append(out, formatNumber(p))
+				changed = true
+			} else {
+				out = append(out, p)
 			}
 		}
 		if changed || facts[i].Key == "Employees" {
-			facts[i].Value = strings.Join(parts, ", ")
+			facts[i].Value = strings.Join(out, ", ")
 		}
 	}
 	return facts, nil
@@ -414,24 +552,61 @@ func (ks *KnowledgeService) fetchEntityData(ctx context.Context, qid string) ([]
 	}
 
 	facts := ks.extractFacts(ent.Claims)
-	// Try to pull a logo image (P154) and expose as a pseudo-fact so caller can prefer it as thumbnail
-	if cs, ok := ent.Claims["P154"]; ok && len(cs) > 0 {
-		for _, claim := range cs {
-			// Datavalue type for P154 is usually "commonsMedia" with a filename string
-			if m, ok2 := claim.Mainsnak.Datavalue.Value.(map[string]any); ok2 {
-				if name, ok3 := m["title"].(string); ok3 && name != "" {
-					logo := "https://commons.wikimedia.org/wiki/Special:FilePath/" + url.PathEscape(name) + "?width=320"
-					facts = append([]Fact{{Key: "LogoURL", Value: logo}}, facts...)
-					break
-				}
-			} else if s, ok3 := claim.Mainsnak.Datavalue.Value.(string); ok3 && s != "" {
-				logo := "https://commons.wikimedia.org/wiki/Special:FilePath/" + url.PathEscape(s) + "?width=320"
-				facts = append([]Fact{{Key: "LogoURL", Value: logo}}, facts...)
-				break
-			}
-		}
-	}
-	return facts, nil
+    // Detect if the entity is a sovereign state (Q6256) to adjust certain labels (e.g., show Independence instead of Founded)
+    isSovereignState := false
+    if cs, ok := ent.Claims["P31"]; ok && len(cs) > 0 { // instance of
+        for _, c := range cs {
+            if m, ok2 := c.Mainsnak.Datavalue.Value.(map[string]any); ok2 {
+                if id, ok3 := m["id"].(string); ok3 && id == "Q6256" { // sovereign state
+                    isSovereignState = true
+                    break
+                }
+            }
+        }
+    }
+    if isSovereignState {
+        for i := range facts {
+            if facts[i].Key == "Founded" {
+                facts[i].Key = "Independence"
+            } else if facts[i].Key == "Founded in" {
+                facts[i].Key = "Independence in"
+            }
+        }
+    }
+    // Prefer a general image (P18) for entities like places/people as the thumbnail
+    if cs, ok := ent.Claims["P18"]; ok && len(cs) > 0 {
+        for _, claim := range cs {
+            if m, ok2 := claim.Mainsnak.Datavalue.Value.(map[string]any); ok2 {
+                if name, ok3 := m["title"].(string); ok3 && name != "" {
+                    img := "https://commons.wikimedia.org/wiki/Special:FilePath/" + url.PathEscape(name) + "?width=320"
+                    facts = append([]Fact{{Key: "ImageURL", Value: img}}, facts...)
+                    break
+                }
+            } else if s, ok3 := claim.Mainsnak.Datavalue.Value.(string); ok3 && s != "" {
+                img := "https://commons.wikimedia.org/wiki/Special:FilePath/" + url.PathEscape(s) + "?width=320"
+                facts = append([]Fact{{Key: "ImageURL", Value: img}}, facts...)
+                break
+            }
+        }
+    }
+    // Also try to pull a logo image (P154) and expose as a pseudo-fact so caller can prefer it for organizations
+    if cs, ok := ent.Claims["P154"]; ok && len(cs) > 0 {
+        for _, claim := range cs {
+            // Datavalue type for P154 is usually "commonsMedia" with a filename string
+            if m, ok2 := claim.Mainsnak.Datavalue.Value.(map[string]any); ok2 {
+                if name, ok3 := m["title"].(string); ok3 && name != "" {
+                    logo := "https://commons.wikimedia.org/wiki/Special:FilePath/" + url.PathEscape(name) + "?width=320"
+                    facts = append([]Fact{{Key: "LogoURL", Value: logo}}, facts...)
+                    break
+                }
+            } else if s, ok3 := claim.Mainsnak.Datavalue.Value.(string); ok3 && s != "" {
+                logo := "https://commons.wikimedia.org/wiki/Special:FilePath/" + url.PathEscape(s) + "?width=320"
+                facts = append([]Fact{{Key: "LogoURL", Value: logo}}, facts...)
+                break
+            }
+        }
+    }
+    return facts, nil
 }
 
 // ------------------- Fact Extraction (Config-driven) -------------------
@@ -534,50 +709,43 @@ func (ks *KnowledgeService) extractFacts(claims map[string][]struct {
 
 // ------------------- Build Knowledge Card -------------------
 func (ks *KnowledgeService) BuildKnowledgeCard(search *WikipediaSearchResult, summary *WikipediaSummaryResult, facts []Fact) *KnowledgeCard {
-	card := &KnowledgeCard{
-		Source: "wikipedia",
-		Title:  search.Title,
-		URL:    search.PageURL,
-	}
+    card := &KnowledgeCard{
+        Source: "wikipedia",
+        Title:  search.Title,
+        URL:    search.PageURL,
+    }
 
-	if summary != nil {
-		if summary.PageURL != "" {
-			card.URL = summary.PageURL
-		}
-		if summary.Desc != "" {
-			card.Description = summary.Desc
-		} else {
-			card.Description = search.Description
-		}
-		card.Extract = summary.Extract
-		card.Thumbnail = summary.Thumb
-	} else {
-		card.Description = search.Description
-	}
+    if summary != nil {
+        if summary.PageURL != "" {
+            card.URL = summary.PageURL
+        }
+        if summary.Desc != "" {
+            card.Description = summary.Desc
+        } else {
+            card.Description = search.Description
+        }
+        card.Extract = summary.Extract
+    } else {
+        card.Description = search.Description
+    }
 
-	hasLogo := false
-	for _, f := range facts {
-		if strings.EqualFold(f.Key, "Website") {
-			card.Website = f.Value
-		}
-		if strings.EqualFold(f.Key, "LogoURL") && f.Value != "" {
-			// Prefer logo image over page screenshot
-			card.Thumbnail = f.Value
-			hasLogo = true
-		}
-	}
-	// If no Wikidata logo, fall back to the site's favicon derived from Website
-	if !hasLogo && card.Website != "" {
-		if u, err := url.Parse(card.Website); err == nil {
-			host := u.Hostname()
-			if host != "" {
-				// Use DuckDuckGo icons service – lightweight and reliable
-				card.Thumbnail = "https://icons.duckduckgo.com/ip3/" + host + ".ico"
-			}
-		}
-	}
-	card.Facts = ks.condenseFacts(facts)
-	return card
+    // Thumbnail selection priority: ImageURL (P18) > LogoURL (P154) > Wikipedia summary thumb
+    for _, f := range facts {
+        if strings.EqualFold(f.Key, "Website") {
+            card.Website = f.Value
+        }
+        if strings.EqualFold(f.Key, "ImageURL") && f.Value != "" && card.Thumbnail == "" {
+            card.Thumbnail = f.Value
+        }
+        if strings.EqualFold(f.Key, "LogoURL") && f.Value != "" && card.Thumbnail == "" {
+            card.Thumbnail = f.Value
+        }
+    }
+    if card.Thumbnail == "" && summary != nil && summary.Thumb != "" {
+        card.Thumbnail = summary.Thumb
+    }
+    card.Facts = ks.condenseFacts(facts)
+    return card
 }
 
 func (ks *KnowledgeService) condenseFacts(facts []Fact) []Fact {
@@ -588,11 +756,13 @@ func (ks *KnowledgeService) condenseFacts(facts []Fact) []Fact {
         "Headquarters": "HQ",
         "Founded by":   "Founders",
         "Initial release": "Initial",
+        "Founded": "Established",
+        "Founded in": "Established in",
     }
     // Build lookup from key -> value
     kv := map[string]string{}
     for _, f := range facts {
-        if f.Key == "Website" || f.Key == "LogoURL" { // shown separately / internal only
+        if f.Key == "Website" || f.Key == "LogoURL" || f.Key == "ImageURL" { // shown separately / internal only
             continue
         }
         if f.Value == "" {
