@@ -2,6 +2,16 @@
 
 Open metasearch engine written in Go which Aggregates results from multiple providers.
 
+
+## Mockups 
+some mockup screenshots of the app
+### Autocomplete
+![](static/assets/mockups/home.png)
+
+### Results
+![](static/assets/mockups/results.png)
+
+
 ## Quick start
 
 ```bash
