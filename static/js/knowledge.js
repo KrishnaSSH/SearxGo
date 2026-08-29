@@ -1,4 +1,4 @@
-import { $, escapeHtml } from './utils.js';
+import { $, escapeHtml, safeUrl, attrUrl } from './utils.js';
 
 export function renderKnowledge(container, card) {
   if (!container) return;
@@ -10,8 +10,8 @@ export function renderKnowledge(container, card) {
   const isDisambig = /may refer to/i.test(extract) || /disambiguation/i.test(desc) || /disambiguation/i.test(extract);
   if (isDisambig) { container.innerHTML = ''; return; }
 
-  const url = card.url || card.URL || '';
-  const thumb = card.thumbnail || card.Thumbnail || '';
+  const url = safeUrl(card.url || card.URL || '');
+  const thumb = safeUrl(card.thumbnail || card.Thumbnail || '');
   // Build a responsive srcset for Commons logos when possible (…FilePath/…?width=NNN)
   const makeSrcSet = (u) => {
     if (!u) return '';
@@ -29,7 +29,7 @@ export function renderKnowledge(container, card) {
   };
   const srcset = makeSrcSet(thumb);
   const facts = card.facts || card.Facts || [];
-  const website = card.website || card.Website || '';
+  const website = safeUrl(card.website || card.Website || '');
   const wikiLogo = 'https://en.wikipedia.org/static/favicon/wikipedia.ico';
   const factsHTML = Array.isArray(facts) && facts.length > 0
     ? (() => {
@@ -61,12 +61,15 @@ export function renderKnowledge(container, card) {
     : '';
   const metaLinks = (website || url)
     ? `<div class="kmeta">
-        ${website ? `<a class="kmeta-link" href="${website}" target="_blank" rel="noopener" aria-label="Website">Website</a>` : ''}
-        ${url ? `<a class="kmeta-link" href="${url}" target="_blank" rel="noopener" aria-label="Wikipedia">Wikipedia</a>` : ''}
+        ${website ? `<a class="kmeta-link" href="${escapeHtml(website)}" target="_blank" rel="noopener" aria-label="Website">Website</a>` : ''}
+        ${url ? `<a class="kmeta-link" href="${escapeHtml(url)}" target="_blank" rel="noopener" aria-label="Wikipedia">Wikipedia</a>` : ''}
       </div>`
     : '';
 
-  const thumbLink = website || url || '';
+  const thumbLink = safeUrl(website || url || '');
+  const srcsetAttr = escapeHtml(srcset);
+  const thumbAttr = escapeHtml(thumb);
+  const thumbLinkAttr = escapeHtml(thumbLink);
   container.innerHTML = `
     <article class="kcard" role="complementary">
       <div class="khead">
@@ -79,8 +82,8 @@ export function renderKnowledge(container, card) {
       </div>
       ${thumb ? (
         thumbLink
-          ? `<a class="kthumb-link" href="${thumbLink}" target="_blank" rel="noopener"><img class="kthumb" src="${thumb}" ${srcset ? `srcset="${srcset}" sizes="(max-width: 360px) 160px, (max-width: 520px) 240px, 320px"` : ''} alt="${escapeHtml(title)}" loading="eager" fetchpriority="high" decoding="async" /></a>`
-          : `<img class="kthumb" src="${thumb}" ${srcset ? `srcset="${srcset}" sizes="(max-width: 360px) 160px, (max-width: 520px) 240px, 320px"` : ''} alt="${escapeHtml(title)}" loading="eager" fetchpriority="high" decoding="async" />`
+          ? `<a class="kthumb-link" href="${thumbLinkAttr}" target="_blank" rel="noopener"><img class="kthumb" src="${thumbAttr}" ${srcset ? `srcset="${srcsetAttr}" sizes="(max-width: 360px) 160px, (max-width: 520px) 240px, 320px"` : ''} alt="${escapeHtml(title)}" loading="eager" fetchpriority="high" decoding="async" /></a>`
+          : `<img class="kthumb" src="${thumbAttr}" ${srcset ? `srcset="${srcsetAttr}" sizes="(max-width: 360px) 160px, (max-width: 520px) 240px, 320px"` : ''} alt="${escapeHtml(title)}" loading="eager" fetchpriority="high" decoding="async" />`
       ) : ''}
       ${extract ? `<p class="kextract">${escapeHtml(extract)}</p>` : ''}
       ${factsHTML}

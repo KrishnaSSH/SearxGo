@@ -1,4 +1,4 @@
-import { escapeHtml } from './utils.js';
+import { escapeHtml, attrUrl } from './utils.js';
 
 const REDDIT_ICON = 'https://www.redditstatic.com/desktop2x/img/favicon/favicon-32x32.png';
 
@@ -19,7 +19,7 @@ export function buildRedditCardHTML(state) {
     const meta = p.subreddit ? `r/${escapeHtml(p.subreddit)} • Reddit` : 'Reddit';
     return `
       <li class="rc-item">
-        <h4 class="rc-title"><a href="${p.url}" target="_blank" rel="noopener">${escapeHtml(p.title)}</a></h4>
+        <h4 class="rc-title"><a href="${attrUrl(p.url) || '#'}" target="_blank" rel="noopener">${escapeHtml(p.title)}</a></h4>
         <div class="rc-meta">${meta}</div>
       </li>`;
   }).join('');

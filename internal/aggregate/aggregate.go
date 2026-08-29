@@ -2,25 +2,49 @@ package aggregate
 
 import (
 	"context"
+	"log"
+	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	en "searxgo/internal/engine"
 )
 
-// Run queries all engines concurrently with a per-request timeout and returns
-// a deduplicated slice of results. Dedupe key is normalized URL.
+// Timing reports what a single engine did for a query. It is emitted for every
+// engine that was queried – including ones that errored or returned nothing –
+// so callers can tell "no results" apart from "engine failed".
 type Timing struct {
 	Engine string `json:"engine"`
 	Ms     int64  `json:"ms"`
 	Count  int    `json:"count"`
+	Error  string `json:"error,omitempty"`
 }
 
+// entry is an aggregated result across engines, tracking every engine that
+// returned it and the 1-based position it appeared at in each engine's list.
+type entry struct {
+	item      en.Result
+	engines   map[string]struct{}
+	positions []int
+	score     float64
+	order     int // first-seen order, used as a stable tie-breaker
+}
+
+// Run queries all engines concurrently and merges their results the way SearXNG
+// does: every engine that answers within the timeout contributes, duplicates are
+// detected by a normalized URL, and results are ranked by a consensus score
+// (engine weight × appearances, summed as weight/position over every position).
+//
+// The returned slice is the full ranked set; callers slice it to the page size.
 func Run(parent context.Context, engines []en.SearchEngine, query string, timeout time.Duration, page int, size int) ([]en.Result, []Timing) {
-	if len(engines) == 0 || query == "" {
+	if len(engines) == 0 || strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
 
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
@@ -31,108 +55,95 @@ func Run(parent context.Context, engines []en.SearchEngine, query string, timeou
 		dur    time.Duration
 	}
 	ch := make(chan resp, len(engines))
-	// per-engine sub-timeout: respect overall timeout, cap to 3s for snappier UX
-	perEngineTO := timeout
-	if perEngineTO > 3*time.Second {
-		perEngineTO = 3 * time.Second
-	}
-	if perEngineTO <= 200*time.Millisecond {
-		perEngineTO = 200 * time.Millisecond
-	}
+
 	for _, e := range engines {
 		e := e
 		go func() {
 			name := e.Name()
-			// child ctx to avoid lingering slow engine
-			cctx, ccancel := context.WithTimeout(ctx, perEngineTO)
 			start := time.Now()
-			items, err := e.Search(cctx, query, page, size)
-			dur := time.Since(start)
-			ccancel()
-			ch <- resp{engine: name, items: items, err: err, dur: dur}
+			// Each engine gets the whole budget; the shared ctx bounds the total.
+			items, err := e.Search(ctx, query, page, size)
+			ch <- resp{engine: name, items: items, err: err, dur: time.Since(start)}
 		}()
 	}
 
-	// SearXNG-like consensus merge with scoring
-	type entry struct {
-		item      en.Result
-		engines   map[string]struct{}
-		positions []int // 1-based positions where it appeared across engines
-		score     float64
-	}
 	byURL := make(map[string]*entry, 128)
-	// Early cutoff target: if size>0 use it, else a slightly larger default for better coverage
-	cutoff := size
-	if cutoff <= 0 {
-		cutoff = 20
-	}
-
 	var timings []Timing
-	// capture results with position within each engine list
-	// Do not cancel the context when cutoff is reached; instead, keep draining
-	// the channel to avoid canceling in-flight engine requests (which caused
-	// context canceled errors). Optionally skip merging after cutoff for speed.
-	cutoffReached := false
-	for i := 0; i < len(engines); i++ {
-		select {
-		case r := <-ch:
-			// collect timing only if engine produced results
-			if len(r.items) > 0 {
-				timings = append(timings, Timing{Engine: r.engine, Ms: r.dur.Milliseconds(), Count: len(r.items)})
-			}
-			// If we've already reached cutoff, skip further merging but continue to drain
-			if cutoffReached {
+	order := 0
+
+	record := func(r resp) {
+		timings = append(timings, Timing{
+			Engine: r.engine,
+			Ms:     r.dur.Milliseconds(),
+			Count:  len(r.items),
+			Error:  errString(r.err),
+		})
+		if r.err != nil {
+			log.Printf("aggregate: engine %q failed after %dms: %v", r.engine, r.dur.Milliseconds(), r.err)
+		} else if len(r.items) == 0 {
+			log.Printf("aggregate: engine %q returned no results after %dms", r.engine, r.dur.Milliseconds())
+		}
+
+		for idx, it := range r.items {
+			key := normalizeURL(it.URL)
+			if key == "" {
 				continue
 			}
-			for idx, it := range r.items {
-				if it.URL == "" {
-					continue
+			pos := idx + 1
+			if ent, ok := byURL[key]; ok {
+				ent.engines[r.engine] = struct{}{}
+				ent.positions = append(ent.positions, pos)
+				// Keep the richest text and prefer an https canonical URL.
+				if len(it.Title) > len(ent.item.Title) {
+					ent.item.Title = it.Title
 				}
-				if ent, ok := byURL[it.URL]; ok {
-					// merge: prefer longer title/snippet
-					if len(it.Title) > len(ent.item.Title) {
-						ent.item.Title = it.Title
-					}
-					if len(it.Snippet) > len(ent.item.Snippet) {
-						ent.item.Snippet = it.Snippet
-					}
-					// track engines
-					ent.engines[r.engine] = struct{}{}
-					// positions are 1-based
-					ent.positions = append(ent.positions, idx+1)
-				} else {
-					byURL[it.URL] = &entry{
-						item:      it,
-						engines:   map[string]struct{}{r.engine: {}},
-						positions: []int{idx + 1},
-					}
+				if len(it.Snippet) > len(ent.item.Snippet) {
+					ent.item.Snippet = it.Snippet
 				}
-			}
-			// Mark cutoff reached but do not cancel contexts; drain remaining responses
-			if len(byURL) >= cutoff {
-				cutoffReached = true
-			}
-		case <-ctx.Done():
-			// break early and compute from what we have
-			// parent timeout reached; remaining goroutines will exit via context
-			// We still need to drain any ready items quickly to avoid goroutine leaks
-			// Drain non-blocking
-			drainLoop:
-			for drained := 1; drained < len(engines)-i; drained++ {
-				select {
-				case <-ch:
-				default:
-					break drainLoop
+				if ent.item.Favicon == "" && it.Favicon != "" {
+					ent.item.Favicon = it.Favicon
 				}
+				if strings.HasPrefix(it.URL, "https://") && !strings.HasPrefix(ent.item.URL, "https://") {
+					ent.item.URL = it.URL
+				}
+			} else {
+				byURL[key] = &entry{
+					item:      it,
+					engines:   map[string]struct{}{r.engine: {}},
+					positions: []int{pos},
+					order:     order,
+				}
+				order++
 			}
-			i = len(engines) // exit loop
 		}
 	}
 
-	// compute scores using SearXNG defaults
-	// calculate_score:
-	//   weight = product(engine.weight) * len(positions)
-	//   score  = sum over positions (weight/pos) [priority neutral]
+	// Collect every engine response until they are all in or the deadline hits.
+	// The channel is buffered to len(engines), so late goroutines never block and
+	// never leak even once we stop reading.
+	got := 0
+collect:
+	for got < len(engines) {
+		select {
+		case r := <-ch:
+			got++
+			record(r)
+		case <-ctx.Done():
+			for {
+				select {
+				case r := <-ch:
+					got++
+					record(r)
+				default:
+					break collect
+				}
+			}
+		}
+	}
+
+	// SearXNG-style scoring:
+	//   weight = product(engine weights) * number of appearances
+	//   score  = sum over positions of weight / position
 	weights := defaultEngineWeights()
 	results := make([]*entry, 0, len(byURL))
 	for _, ent := range byURL {
@@ -140,30 +151,25 @@ func Run(parent context.Context, engines []en.SearchEngine, query string, timeou
 		for engName := range ent.engines {
 			if w, ok := weights[engName]; ok {
 				weight *= w
-			} else {
-				weight *= 1.0
 			}
 		}
-		if n := len(ent.positions); n > 0 {
-			weight *= float64(n)
-		}
+		weight *= float64(len(ent.positions))
+
 		score := 0.0
 		for _, pos := range ent.positions {
-			if pos <= 0 {
-				continue
+			if pos > 0 {
+				score += weight / float64(pos)
 			}
-			score += weight / float64(pos)
 		}
 		ent.score = score
 		results = append(results, ent)
 	}
 
-	// stable sort by score desc; if tie, keep deterministic order by URL
 	sort.SliceStable(results, func(i, j int) bool {
-		if results[i].score == results[j].score {
-			return results[i].item.URL < results[j].item.URL
+		if results[i].score != results[j].score {
+			return results[i].score > results[j].score
 		}
-		return results[i].score > results[j].score
+		return results[i].order < results[j].order
 	})
 
 	out := make([]en.Result, 0, len(results))
@@ -173,20 +179,47 @@ func Run(parent context.Context, engines []en.SearchEngine, query string, timeou
 	return out, timings
 }
 
-// defaultEngineWeights returns SearXNG default weights for our engines of interest.
-// If an engine has no explicit weight in settings.yml, it defaults to 1.0.
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// normalizeURL produces a dedupe key that treats http/https, a trailing slash,
+// a leading "www.", and URL fragments as equivalent – mirroring SearXNG's
+// duplicate detection so consensus scoring actually merges the same page.
+func normalizeURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return strings.ToLower(raw)
+	}
+	host := strings.ToLower(u.Host)
+	host = strings.TrimPrefix(host, "www.")
+	path := strings.TrimSuffix(u.EscapedPath(), "/")
+	key := host + path
+	if u.RawQuery != "" {
+		key += "?" + u.RawQuery
+	}
+	return key
+}
+
+// defaultEngineWeights returns SearXNG-style default weights. Engines without an
+// explicit weight default to 1.0.
 func defaultEngineWeights() map[string]float64 {
 	return map[string]float64{
-		// Core web engines
-		"bing":       1.0,
-		"duckduckgo": 1.3,
-		"mojeek":     1.2,
-		// Knowledge / APIs
-		"wikipedia":  0.6,
-		"openlibrary": 0.5,
-		// Communities
-		"hackernews":   0.9,
-		"reddit":       0.9,
+		"bing":          1.0,
+		"google":        1.0,
+		"duckduckgo":    1.3,
+		"mojeek":        1.2,
+		"wikipedia":     0.6,
+		"openlibrary":   0.5,
+		"hackernews":    0.9,
+		"reddit":        0.9,
 		"stackoverflow": 0.9,
 	}
 }

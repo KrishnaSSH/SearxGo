@@ -3,6 +3,7 @@ package engines
 import (
     "context"
     "encoding/json"
+    "fmt"
     "net/url"
     "strconv"
     "strings"
@@ -37,8 +38,11 @@ func (r *reddit) Search(ctx context.Context, q string, page int, size int) ([]en
     }
 
     body, status, err := httpx.GetWithHeaders(ctx, searchURL, headers)
-    if err != nil || status < 200 || status >= 300 {
-        return nil, nil
+    if err != nil {
+        return nil, err
+    }
+    if status < 200 || status >= 300 {
+        return nil, fmt.Errorf("reddit: http %d", status)
     }
 
     // Minimal structures to parse reddit JSON

@@ -46,7 +46,7 @@ func LoadConfig(filename string) (*Config, error) {
             Port:        9000,
             Timeout:     "5s",
             StaticDir:   "static",
-            DefaultSize: 30,
+            DefaultSize: 40,
         },
         Engines: make(map[string]EngineConfig),
     }
@@ -87,6 +87,8 @@ func (c *Config) LoadEnabledEngines() []en.SearchEngine {
         switch name {
         case "bing":
             engine = engines.NewBing()
+        case "google":
+            engine = engines.NewGoogle()
         case "duckduckgo":
             engine = engines.NewDuckDuckGo()
         case "wikipedia":
@@ -131,7 +133,7 @@ func Default() Config {
             Port:        9000,
             Timeout:     "5s",
             StaticDir:   "static",
-            DefaultSize: 30,
+            DefaultSize: 40,
         },
         Engines: make(map[string]EngineConfig),
     }

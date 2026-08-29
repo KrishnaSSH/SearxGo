@@ -3,6 +3,7 @@ package engines
 import (
     "bytes"
     "context"
+    "fmt"
     "net/url"
     "regexp"
     "strconv"
@@ -26,6 +27,28 @@ type vqdEntry struct{ v string }
 var ddgVQD sync.Map // key: query+"//"+region, value: vqdEntry
 
 var vqdRe = regexp.MustCompile(`vqd="([^"]+)"`)
+
+// unwrapDDGRedirect turns DuckDuckGo's "/l/?uddg=<target>" redirect links into
+// the real destination URL. Without this, every DDG result URL is a duckduckgo.com
+// redirect, which breaks cross-engine dedup and shows a useless host to the user.
+func unwrapDDGRedirect(href string) string {
+    if href == "" {
+        return href
+    }
+    if strings.HasPrefix(href, "//") {
+        href = "https:" + href
+    }
+    u, err := url.Parse(href)
+    if err != nil {
+        return href
+    }
+    if strings.Contains(u.Host, "duckduckgo.com") && strings.HasPrefix(u.Path, "/l/") {
+        if target := u.Query().Get("uddg"); target != "" {
+            return target
+        }
+    }
+    return href
+}
 
 func getVQD(ctx context.Context, query string) string {
     // region hardcoded to us-en for now
@@ -84,13 +107,14 @@ func (d *duckduckgo) Search(ctx context.Context, q string, page int, size int) (
     }
 
     body, status, err := httpx.PostForm(ctx, host, form)
-    if err != nil || status < 200 || status >= 300 { return nil, nil }
+    if err != nil { return nil, err }
+    if status < 200 || status >= 300 { return nil, fmt.Errorf("duckduckgo: http %d", status) }
     doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
-    if err != nil { return nil, nil }
+    if err != nil { return nil, err }
 
     // Detect CAPTCHA/challenge form
     if doc.Find("form#challenge-form").Length() > 0 {
-        return nil, nil
+        return nil, fmt.Errorf("duckduckgo: blocked by challenge page")
     }
     // Optionally capture vqd from hidden input for caching
     if v := doc.Find("input[name='vqd']").First(); v.Length() > 0 {
@@ -106,6 +130,7 @@ func (d *duckduckgo) Search(ctx context.Context, q string, page int, size int) (
         a := s.Find("h2 a").First()
         if a.Length() == 0 { return }
         href, _ := a.Attr("href")
+        href = unwrapDDGRedirect(href)
         title := strings.TrimSpace(a.Text())
         if href == "" || title == "" { return }
 

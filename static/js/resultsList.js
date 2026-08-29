@@ -1,4 +1,4 @@
-import { escapeHtml, deriveSiteName, prettyEngineName } from './utils.js';
+import { escapeHtml, deriveSiteName, prettyEngineName, safeUrl, attrUrl } from './utils.js';
 
 export function renderResults(container, items) {
   if (!container) return;
@@ -11,9 +11,9 @@ export function renderResults(container, items) {
   for (const r of items) {
     const li = document.createElement('li');
     li.className = 'results-item';
-    const fav = r.Favicon || r.favicon || '';
+    const fav = safeUrl(r.Favicon || r.favicon || '');
     const title = r.Title || r.title || r.URL || r.url || '';
-    const urlStr = r.URL || r.url || '';
+    const urlStr = safeUrl(r.URL || r.url || '');
     const snippet = r.Snippet || r.snippet || '';
     const engineRaw = r.Engine || r.engine || '';
     const enginePretty = prettyEngineName(engineRaw);
@@ -28,16 +28,17 @@ export function renderResults(container, items) {
 
     const siteName = deriveSiteName(host);
     if (fav) li.classList.add('has-fav');
+    const hrefAttr = escapeHtml(urlStr) || '#';
     li.innerHTML = `
       <div class="site-line">
-        ${fav ? `<img class="fav" src="${fav}" alt="">` : ''}
+        ${fav ? `<img class="fav" src="${escapeHtml(fav)}" alt="">` : ''}
         <div class="site-meta">
           <span class="site-name">${escapeHtml(siteName || host || '')}</span>
           <div class="url u-ellipsis u-text-secondary">${escapeHtml(displayUrl)}</div>
         </div>
       </div>
       <div class="title-row">
-        <h3 class="title"><a href="${urlStr}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a></h3>
+        <h3 class="title"><a href="${hrefAttr}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a></h3>
         ${enginePretty ? `<div class="meta"><span class="engine-badge u-badge" data-engine="${escapeHtml(engineRaw.toLowerCase())}">${escapeHtml(enginePretty)}</span></div>` : ''}
       </div>
       ${snippet ? `<p class="snippet">${escapeHtml(snippet)}</p>` : ''}

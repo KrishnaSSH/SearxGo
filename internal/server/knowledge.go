@@ -183,6 +183,75 @@ func (ks *KnowledgeService) httpGetJSON(ctx context.Context, url string, target 
 	return json.NewDecoder(bytes.NewReader(body)).Decode(target)
 }
 
+// knowledgeTitleFuzz normalizes a string for query/title comparison: lowercase,
+// every non-alphanumeric run collapsed to a single space (so "Python (programming
+// language)" becomes "python programming language"), whitespace squeezed.
+func knowledgeTitleFuzz(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte(' ')
+		}
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+// titleMatchesQuery reports whether a Wikipedia article title is a confident
+// match for the user's query. It only returns true when one side's tokens are
+// fully contained in the other's (e.g. "einstein" -> "Albert Einstein", or
+// "albert einstein facts" -> "Albert Einstein"), so unrelated top hits for
+// navigational or question-style queries do not produce a knowledge card.
+func titleMatchesQuery(query, title string) bool {
+	q := knowledgeTitleFuzz(query)
+	t := knowledgeTitleFuzz(title)
+	if q == "" || t == "" {
+		return false
+	}
+	if q == t {
+		return true
+	}
+	qt := strings.Fields(q)
+	tt := strings.Fields(t)
+	// Very short queries must match exactly to be trustworthy.
+	if len(q) <= 3 {
+		return false
+	}
+
+	// Confident direction: every query token appears in the title
+	// (e.g. "einstein" / "albert einstein" -> "Albert Einstein").
+	titleSet := make(map[string]struct{}, len(tt))
+	for _, x := range tt {
+		titleSet[x] = struct{}{}
+	}
+	queryInTitle := true
+	for _, x := range qt {
+		if _, ok := titleSet[x]; !ok {
+			queryInTitle = false
+			break
+		}
+	}
+	if queryInTitle {
+		return true
+	}
+
+	// Softer direction: the query is the exact title followed by at most a
+	// couple of filler words ("albert einstein wiki", "…facts"). Require a
+	// multi-word title and a leading, in-order match so single-word concept
+	// titles ("Weather", "Pizza") don't hijack navigational queries.
+	if len(tt) >= 2 && len(qt) > len(tt) && len(qt)-len(tt) <= 2 {
+		for i := range tt {
+			if qt[i] != tt[i] {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 func getFirstString(arr any) string {
 	if s, ok := arr.([]any); ok && len(s) > 0 {
 		if str, ok2 := s[0].(string); ok2 {

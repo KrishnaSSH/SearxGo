@@ -1,3 +1,5 @@
+import { initTheme } from './theme.js';
+
 const KEY = 'searxgo.enabledEngines';
 
 function $(sel, root=document) { return root.querySelector(sel); }
@@ -73,6 +75,7 @@ function render(list) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  initTheme();
   const engines = await fetchEngines();
   render(engines);
 });

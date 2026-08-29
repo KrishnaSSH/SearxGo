@@ -5,7 +5,8 @@
 port = 9000
 timeout = "6s"
 static_dir = "static"
-default_size = 30
+# Results shown on the first page (aggregated across engines, after dedupe).
+default_size = 40
 
 [engines]
 # Enable or disable search engines by setting enabled = true/false
@@ -18,6 +19,11 @@ priority = 1
 
 [engines.bing]
 enabled = true
+priority = 2
+
+# Google scraping is fragile (frequent CAPTCHAs); disabled by default.
+[engines.google]
+enabled = false
 priority = 2
 
 [engines.reddit]

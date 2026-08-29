@@ -4,8 +4,10 @@ import { renderKnowledge } from './knowledge.js';
 import { renderResults } from './resultsList.js';
 import { redditCardState, renderRedditCard } from './redditCard.js';
 import { Autocomplete, makeEndpointFetcher } from './autocomplete.js';
+import { initTheme } from './theme.js';
 
 document.addEventListener('DOMContentLoaded', () => {
+  initTheme();
   const resultsEl = $('#results');
   const timingBar = $('#timing-bar');
   const cardsEl = $('#cards');
@@ -19,7 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let q = (params.get('q') || '').trim();
   let page = parseInt(params.get('page') || '1', 10);
   if (!(page > 0)) page = 1;
-  const pageSize = 30;
+  const pageSize = 40;
 
   if (input) input.value = q;
 

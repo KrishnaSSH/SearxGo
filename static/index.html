@@ -4,15 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>searxgo</title>
+  <meta name="color-scheme" content="light dark" />
   <link rel="icon" href="/static/assets/icon.png" />
   <link rel="apple-touch-icon" href="/static/assets/icon.png" />
-  <link rel="stylesheet" href="/static/css/base.css?v=2" />
+  <script>(function(){try{var t=localStorage.getItem('searxgo.theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+  <link rel="stylesheet" href="/static/css/base.css?v=3" />
 </head>
 <body class="home">
   <main class="container">
     <div class="brand">
       <div class="logo-circle">
-        <img src="/static/assets/icon.png" alt="SeaxGO" />
+        <img src="/static/assets/icon.png" alt="SearxGO" />
       </div>
       <div class="brand-title">SearxGO</div>
     </div>
@@ -23,10 +25,10 @@
       </div>
     </form>
     <div class="prefs-top">
+      <button type="button" class="icon-btn icon-btn--sm" data-theme-toggle aria-label="Toggle dark mode" aria-pressed="false"><span class="ico" aria-hidden="true">☾</span></button>
       <a href="/preferences" class="nav-link">Preferences</a>
     </div>
-    
   </main>
-  <script type="module" src="/static/js/app.js?v=2"></script>
+  <script type="module" src="/static/js/app.js?v=3"></script>
 </body>
 </html>

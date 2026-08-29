@@ -4,14 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SearxGO Preferences</title>
+  <meta name="color-scheme" content="light dark" />
+  <meta name="robots" content="noindex" />
   <link rel="icon" href="/static/assets/icon.png" />
   <link rel="apple-touch-icon" href="/static/assets/icon.png" />
-  <link rel="stylesheet" href="/static/css/base.css?v=2" />
-  <meta name="robots" content="noindex" />
-  
-  <!-- Page specific minimal styles can live in base.css; structure mirrors home -->
-  
-  </head>
+  <script>(function(){try{var t=localStorage.getItem('searxgo.theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+  <link rel="stylesheet" href="/static/css/base.css?v=3" />
+</head>
 <body class="prefs">
   <main class="container">
     <div class="brand">
@@ -21,10 +20,11 @@
       <div class="brand-title">SearxGO</div>
     </div>
 
-    <section class="card pref-card">
+    <section class="pref-card">
       <div class="card-inner">
         <div class="btn-row">
           <a href="/" class="btn" aria-label="Back to Home">← Home</a>
+          <button type="button" class="btn" data-theme-toggle aria-label="Toggle dark mode" aria-pressed="false"><span class="ico" aria-hidden="true">☾</span>&nbsp;Theme</button>
         </div>
         <h1 class="pref-title">SearxGO Preferences</h1>
         <h2 class="pref-subtitle">Enabled search engines</h2>
@@ -40,6 +40,6 @@
     </section>
   </main>
 
-  <script type="module" src="/static/js/preferences.js?v=2"></script>
+  <script type="module" src="/static/js/preferences.js?v=3"></script>
 </body>
 </html>

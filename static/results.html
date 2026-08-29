@@ -4,11 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Results - SearxGO</title>
+  <meta name="color-scheme" content="light dark" />
   <link rel="icon" href="/static/assets/icon.png" />
   <link rel="apple-touch-icon" href="/static/assets/icon.png" />
-  <link rel="stylesheet" href="/static/css/base.css?v=2" />
-  <link rel="stylesheet" href="/static/css/utilities.css?v=2" />
-  <!-- Performance hints for knowledge card resources -->
+  <script>(function(){try{var t=localStorage.getItem('searxgo.theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+  <link rel="stylesheet" href="/static/css/base.css?v=3" />
+  <link rel="stylesheet" href="/static/css/utilities.css?v=3" />
   <link rel="dns-prefetch" href="//en.wikipedia.org">
   <link rel="dns-prefetch" href="//www.wikidata.org">
   <link rel="dns-prefetch" href="//commons.wikimedia.org">
@@ -28,7 +29,10 @@
           <button id="submit" type="submit" aria-label="Search"><span>Search</span></button>
         </div>
       </form>
-      <nav class="header-nav"><a href="/preferences" class="nav-link" style="color: var(--muted); text-decoration: none;">Preferences</a></nav>
+      <nav class="header-nav">
+        <button type="button" class="icon-btn icon-btn--sm" data-theme-toggle aria-label="Toggle dark mode" aria-pressed="false"><span class="ico" aria-hidden="true">☾</span></button>
+        <a href="/preferences" class="nav-link">Preferences</a>
+      </nav>
     </div>
   </header>
 
@@ -45,6 +49,6 @@
     <aside id="knowledge" class="knowledge" aria-label="Knowledge panel"></aside>
   </main>
 
-  <script type="module" src="/static/js/app.js?v=2"></script>
+  <script type="module" src="/static/js/app.js?v=3"></script>
 </body>
 </html>

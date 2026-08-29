@@ -9,7 +9,12 @@ export function renderTimings(container, timings, took) {
     for (const t of timings) {
       const name = prettyEngineName(t.engine || t.Engine);
       const ms = t.ms ?? t.Ms;
-      chips.push(`<span class="timing-chip"><span class="engine">${escapeHtml(name)}</span><span class="ms">${formatMs(ms)}</span></span>`);
+      const err = t.error || t.Error || '';
+      if (err) {
+        chips.push(`<span class="timing-chip is-error" title="${escapeHtml(err)}"><span class="engine">${escapeHtml(name)}</span><span class="ms">failed</span></span>`);
+      } else {
+        chips.push(`<span class="timing-chip"><span class="engine">${escapeHtml(name)}</span><span class="ms">${formatMs(ms)}</span></span>`);
+      }
     }
   }
   container.innerHTML = chips.join(' ');

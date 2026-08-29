@@ -4,6 +4,7 @@ import (
     "bytes"
     "context"
     "encoding/base64"
+    "fmt"
     "net/url"
     "strconv"
     "strings"
@@ -72,11 +73,14 @@ func (b *bing) Search(ctx context.Context, q string, page int, size int) ([]en.R
     urlStr, headers := buildBingURL(q, page)
 
     body, status, err := httpx.GetWithHeaders(ctx, urlStr, headers)
-    if err != nil || status < 200 || status >= 300 {
-        return nil, nil
+    if err != nil {
+        return nil, err
+    }
+    if status < 200 || status >= 300 {
+        return nil, fmt.Errorf("bing: http %d", status)
     }
     doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
-    if err != nil { return nil, nil }
+    if err != nil { return nil, err }
 
     // Parse strictly from ol#b_results / li.b_algo
     results := make([]en.Result, 0, size)

@@ -7,6 +7,24 @@ export function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
 }
 
+// Validate a URL for safe use in href/src attributes.
+// Returns a normalized absolute URL string when it is http(s), otherwise ''.
+// The returned value is percent-encoded by the URL parser, so it is safe to
+// place inside a double-quoted attribute (still pass through escapeHtml for defence in depth).
+export function safeUrl(u) {
+  if (!u) return '';
+  try {
+    const parsed = new URL(String(u).trim(), window.location.origin);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return parsed.href;
+  } catch (_) {}
+  return '';
+}
+
+// Convenience: escaped + validated URL ready to drop into an attribute.
+export function attrUrl(u) {
+  return escapeHtml(safeUrl(u));
+}
+
 export function capitalize(s) {
   if (!s) return s;
   return s.charAt(0).toUpperCase() + s.slice(1);

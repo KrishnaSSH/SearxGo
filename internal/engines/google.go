@@ -3,6 +3,7 @@ package engines
 import (
     "bytes"
     "context"
+    "fmt"
     "net/url"
     "strconv"
     "strings"
@@ -56,17 +57,20 @@ func (g *google) Search(ctx context.Context, q string, page int, size int) ([]en
     urlStr, headers := buildGoogleURL(q, page)
 
     body, status, err := httpx.GetWithHeaders(ctx, urlStr, headers)
-    if err != nil || status < 200 || status >= 300 {
-        return nil, nil
+    if err != nil {
+        return nil, err
+    }
+    if status < 200 || status >= 300 {
+        return nil, fmt.Errorf("google: http %d", status)
     }
 
     doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
-    if err != nil { return nil, nil }
+    if err != nil { return nil, err }
 
     // Detect captcha/sorry page quickly
     if strings.Contains(strings.ToLower(string(body)), "sorry") && strings.Contains(strings.ToLower(string(body)), "google") {
-        // Avoid surfacing captcha pages as results; just return empty
-        return nil, nil
+        // Avoid surfacing captcha pages as results; report it so it's visible.
+        return nil, fmt.Errorf("google: blocked by captcha")
     }
 
     out := make([]en.Result, 0, size)

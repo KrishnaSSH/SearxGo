@@ -11,6 +11,11 @@
 //   minLength: 1,
 // });
 
+// HTML-escape for safe interpolation into innerHTML (text and quoted attributes).
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 // Create a fetcher against a backend endpoint returning { suggestions: [] } JSON.
 // You can pass a mapper to adapt different payload shapes into a string[] list.
 export function makeEndpointFetcher(endpoint = '/suggest', mapper) {
@@ -241,8 +246,8 @@ export class Autocomplete {
     this.box.innerHTML = '<ul style="list-style:none;margin:0;padding:0;">' +
       this.items.map((s, i) => `
         <li>
-          <a href="#" data-idx="${i}" style="display:block;padding:8px 12px;text-decoration:none;color:inherit;${i>0?'border-top:1px solid #f1f5f9;':''}">
-            ${String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+          <a href="#" data-idx="${i}" style="display:block;padding:8px 12px;text-decoration:none;color:inherit;${i>0?'border-top:1px solid var(--border);':''}">
+            ${escHtml(s)}
           </a>
         </li>`).join('') +
       '</ul>';
@@ -265,7 +270,7 @@ export class Autocomplete {
     if (!this.box) return;
     const links = this.box.querySelectorAll('a[data-idx]');
     links.forEach((a, i) => {
-      a.style.background = (i === this.index) ? '#f8fafc' : 'transparent';
+      a.style.background = (i === this.index) ? 'var(--surface-3)' : 'transparent';
       a.style.fontWeight = (i === this.index) ? '600' : '400';
     });
   }

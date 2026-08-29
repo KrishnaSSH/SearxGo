@@ -69,7 +69,7 @@ func NewServer(engines []en.SearchEngine) *Server {
         Engines:          engines,
         Timeout:          timeout,
         StaticDir:        "static",
-        DefaultSize:      30,
+        DefaultSize:      40,
         knowledgeService: NewKnowledgeService(timeout),
         responseHelper:   NewResponseHelper(),
         requestParser:    NewRequestParser(),
@@ -154,8 +154,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 // executeSearch performs the actual search operation
 func (s *Server) executeSearch(ctx context.Context, params SearchParams) ([]en.Result, []aggregate.Timing, time.Duration) {
     // Engines need a deterministic page size to fetch offsets.
-    // DuckDuckGo HTML effectively paginates in ~30-size chunks; use 30 for consistency.
+    // DuckDuckGo HTML effectively paginates in ~30-size chunks; use 30 as the
+    // floor and fetch more only when the client explicitly asks for a bigger page.
     engineSize := 30
+    if params.Size > engineSize {
+        engineSize = params.Size
+    }
     // Filter engines per request if user provided a list (local browser preference)
     engines := s.Engines
     if len(params.Engines) > 0 {
@@ -178,18 +182,10 @@ func (s *Server) executeSearch(ctx context.Context, params SearchParams) ([]en.R
     results, timings := aggregate.Run(ctx, engines, params.Query, s.Timeout, params.Page, engineSize)
     took := time.Since(totalStart)
     
-    // Slice to requested size for the client (stable subset of the engine page)
-    if params.Size > 0 {
-        start := 0
-        // within the engine page, we expose only the first N requested by client
-        end := params.Size
-        if start > len(results) {
-            start = len(results)
-        }
-        if end > len(results) {
-            end = len(results)
-        }
-        results = results[start:end]
+    // Expose only the first N ranked results for this page to the client.
+    // Engine-level pagination already happened via params.Page above.
+    if params.Size > 0 && len(results) > params.Size {
+        results = results[:params.Size]
     }
     
     return results, timings, took
@@ -322,6 +318,12 @@ func (s *Server) fetchKnowledgeCard(ctx context.Context, query string) (*Knowled
         if t == "disambiguation" || strings.Contains(ex, "may refer to") || strings.Contains(ex, "disambiguation") {
             return nil, nil
         }
+    }
+
+    // Only surface a knowledge card when we're confident the article is about
+    // the query itself (not just Wikipedia's best guess for a loose phrase).
+    if !titleMatchesQuery(query, searchResult.Title) {
+        return nil, nil
     }
 
     // Build and return the final knowledge card

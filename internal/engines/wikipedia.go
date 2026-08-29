@@ -3,6 +3,7 @@ package engines
 import (
     "context"
     "encoding/json"
+    "fmt"
     "math/rand"
     "net/url"
     "strconv"
@@ -45,7 +46,7 @@ func fetchOK(ctx context.Context, target string) ([]byte, error) {
         return nil, err
     }
     if status < 200 || status >= 300 {
-        return nil, nil
+        return nil, fmt.Errorf("wikipedia: http %d", status)
     }
     return body, nil
 }
